@@ -1,0 +1,3 @@
+Memxamine is a tool to analyze the memory difference files from memdiff (https://github.com/djcapelis/memdiff) and report very simple information and statistics on them.  As part of a larger workflow, memxamine is designed for simple triaging and determining which segments are worth a more detailed look.
+
+It may eventually also do other things, like providing rough memory write bandwidth estimates, since it's easy enough to display that data and why not?
