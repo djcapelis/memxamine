@@ -13,12 +13,16 @@
 #include<stdbool.h>
 #include<limits.h>
 #include<string.h>
-#include<ftw.h>
+#include<strings.h>
+#include<dirent.h>
+#include<sys/stat.h>
 
 /* Function prototypes */
 void print_usage();
 void err_msg(char * msg);
 void err_exit();
+int filter(const struct dirent * f);
+int cmp(const struct dirent ** p0, const struct dirent ** p1);
 
 /* Defines */
 #define NAMELEN 256       /* Length of max file name */
@@ -27,11 +31,14 @@ void err_exit();
 #define err_chk(cond) do { if(cond) { goto err; }} while(0)
 
 /* Globals */
-bool OPT_B = false;
-bool OPT_K = false;
-bool OPT_P = false;
-bool OPT_U = false;
-bool OPT_Q = false;
+bool OPT_B = false;     /* -b specified */
+bool OPT_K = false;     /* -k specified */
+bool OPT_P = false;     /* -p specified */
+bool OPT_U = false;     /* -u specified */
+bool OPT_Q = false;     /* -q specified */
+int pid;                /* pid of process differences to examine */
+int maxseg;             /* maximum segment number */
+int maxsnap;            /* maximum snapshot number */
 
 /* Print tin label */
 void print_usage()
@@ -48,11 +55,9 @@ void print_usage()
 int main(int argc, char * argv[])
 {
     /* Variables! */
-    int pid;                /* pid of process differences to examine */
     int blocksize;          /* assume a blocksize of this size */
     int chk;                /* return value check */
     char * srcdir;          /* where the memdiffs are */
-    size_t srcdirlen;       /* length of diff directory */
 
     /* Argument parsing */
     char opt;               /* Char for getopt() */
@@ -124,14 +129,12 @@ int main(int argc, char * argv[])
     {
         if(!OPT_Q)
             printf("No path given, searching current directory.\n");
-        srcdirlen = 2;
         srcdir = calloc(1, 2);
         srcdir[0] = '.';
         srcdir[1] = '\0';
     }
     else
     {
-        srcdirlen = strlen(argv[optind]);
         srcdir = argv[optind];
         chk = stat(srcdir, &statchk);
         if(chk == -1 && errno == ENOENT)
@@ -151,6 +154,14 @@ int main(int argc, char * argv[])
         }
     }
 
+    struct dirent ** flist;
+    int files;
+    files = scandir(srcdir, &flist, &filter, &cmp);
+    for(int i = 0; i < files;i++)
+        printf("%s\n", flist[i]->d_name);
+    printf("maxseg: %d, maxsnap %d, total files %d\n", maxseg, maxsnap, files);
+    err_chk(files == -1);
+
     exit(EXIT_SUCCESS);
 
 err:
@@ -159,6 +170,121 @@ err:
     if(srcdir)
         free(srcdir);
     exit(EXIT_FAILURE);
+}
+
+/* Filter function for scandir() */
+int filter(const struct dirent * f)
+{
+    char chkchars[64];
+    char * tok;
+    int i;
+
+    if(f->d_type != DT_REG)
+        return 0;
+
+    /* Check for .memdiff extension */
+    if(rindex(f->d_name, '.') == NULL)
+        return 0;
+    if(strcmp(".memdiff", rindex(f->d_name, '.')) != 0)
+        return 0;
+
+    /* Check for correct pid name format */
+    snprintf(chkchars, 64, "pid%d_snap", pid);
+    if(strncmp(f->d_name, chkchars, strlen(chkchars)) != 0)
+        return 0;
+
+    /* Check for correct snap format */
+    tok = index(f->d_name, '_');
+    if(tok == NULL)
+        return 0;
+    tok++;
+    tok = index(tok, '_');
+    if(tok == NULL)
+        return 0;
+    if(strncmp("_snap", tok, 5) != 0)
+        return 0;
+    tok += 5;
+    sscanf(tok, "%d", &i);
+    if(maxsnap < i)
+        maxsnap = i;
+
+    /* Check for correct segment format */
+    tok = index(tok, '_');
+    if(tok == NULL)
+        return 0;
+    if(strncmp("_seg", tok, 4) != 0)
+        return 0;
+    tok += 4;
+    sscanf(tok, "%d", &i);
+    if(maxseg < i)
+        maxseg = i;
+
+    return 1;
+}
+
+/* Comparison function for scandir() */
+int cmp(const struct dirent ** p0, const struct dirent ** p1)
+{
+    const struct dirent * f0 = *p0;
+    const struct dirent * f1 = *p1;
+    int seg0;
+    int seg1;
+    int snap0;
+    int snap1;
+    char * tok;
+
+    /* Find segments */
+    /* First segment */
+    tok = rindex(f0->d_name, '_');
+    if(tok == NULL)
+        return 0; // shouldn't happen
+    tok += 4;
+    sscanf(tok, "%d", &seg0);
+
+    /* Second segment */
+    tok = rindex(f1->d_name, '_');
+    if(tok == NULL)
+        return 0; // shouldn't happen
+    tok += 4;
+    sscanf(tok, "%d", &seg1);
+
+    /* Segment comparison */
+    if(seg0 != seg1)
+        return seg0 > seg1 ? 1 : -1;
+
+    /* Find snaps */
+    /* First snap */
+    tok = index(f0->d_name, '_');
+    if(tok == NULL)
+        return 0; //shouldn't happen
+    tok++;
+    tok = index(tok, '_');
+    if(tok == NULL)
+        return 0; //shouldn't happen
+    tok += 5;
+    sscanf(tok, "%d", &snap0);
+
+    /* Second snap */
+    tok = index(f1->d_name, '_');
+    if(tok == NULL)
+        return 0; //shouldn't happen
+    tok++;
+    tok = index(tok, '_');
+    if(tok == NULL)
+        return 0; //shouldn't happen
+    tok += 5;
+    sscanf(tok, "%d", &snap1);
+
+    /* Snap comparison */
+    if(snap0 != snap1)
+        return snap0 > snap1 ? 1 : -1;
+
+    if(seg0 == seg1 && snap0 == snap1)
+    {
+        fprintf(stderr, "Warning: cannot differentiate between %s and %s\n", f0->d_name, f1->d_name);
+    }
+
+    return 0;
 }
 
 /* Print error message, exit with errors */
