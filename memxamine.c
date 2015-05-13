@@ -43,6 +43,7 @@ struct segdata
 /* Globals */
 bool OPT_B = false;         /* -b specified */
 bool OPT_K = false;         /* -k specified */
+bool OPT_L = false;         /* -l specified */
 bool OPT_P = false;         /* -p specified */
 bool OPT_U = false;         /* -u specified */
 bool OPT_Q = false;         /* -q specified */
@@ -50,14 +51,16 @@ int pid;                    /* pid of process differences to examine */
 int maxseg;                 /* maximum segment number */
 int maxsnap;                /* maximum snapshot number */
 struct segdata ** data;     /* data array */
+bool success = false;       /* successful exit? */
 
 /* Print tin label */
 void print_usage()
 {
     fprintf(stderr, "Usage: memxamine <options> -p <pid> [memdiffs path]\n");
     fprintf(stderr, "\t-h Print usage\n");
-    fprintf(stderr, "\t-b <size> assume blocksize of <size> bytes\n");
-    fprintf(stderr, "\t-k <size> assume blocksize of <size> kilobytes\n");
+    /*fprintf(stderr, "\t-b <size> assume blocksize of <size> bytes\n");
+    fprintf(stderr, "\t-k <size> assume blocksize of <size> kilobytes\n");*/
+    fprintf(stderr, "\t-l <limit> ignore segments with under <limit> blocks");
     fprintf(stderr, "\t-p <pid> Look for memdiff files from pid <pid>\n");
     fprintf(stderr, "\t-u list unchanged segments\n");
     fprintf(stderr, "\t-q quieter output: squelch unnecessary messages\n");
@@ -73,17 +76,21 @@ int main(int argc, char * argv[])
     int i;                          /* counting variable */
     struct segdata * base = NULL;   /* underlying memory for the data array */
     char fname[NAMELEN];            /* file name string */
+    int * snapcols;                 /* column output alignment */
+    unsigned int limit;             /* size limit */
 
     /* Initialization */
+    base = NULL;
     data = NULL;
     fpath = NULL;
+    snapcols = NULL;
 
     /* Argument parsing */
     char opt;               /* Char for getopt() */
     char * strerr = NULL;   /* Per getopt(3) */
     long arg;               /* Temporary argument storage */
     struct stat statchk;    /* For checking path validity */
-    while((opt = getopt(argc, argv, "+hb:k:p:uq")) != -1)
+    while((opt = getopt(argc, argv, "+hb:k:l:p:uq")) != -1)
     {
         switch(opt)
         {
@@ -124,6 +131,16 @@ int main(int argc, char * argv[])
                 blocksize = arg * 1024;
                 optarg = NULL;
                 break;
+            case 'l':
+                if(OPT_L)
+                    err_msg("Duplicate -l arguments\n");
+                OPT_L = true;
+                arg = strtol(optarg, &strerr, 10);
+                if(arg > INT_MAX || arg < 0 || strerr[0] != 0)
+                    err_msg("Unable to parse -l argument correctly, invalid number\n");
+                limit = arg;
+                optarg = NULL;
+                break;
             /* Show unchanged segments */
             case 'u':
                 OPT_U = true;
@@ -143,12 +160,14 @@ int main(int argc, char * argv[])
     }
     /* Option validity checks */
     if(!OPT_P)
-        err_msg("Option -p must be specified");
+        err_msg("Option -p must be specified\n");
+    if(OPT_U && OPT_L)
+        err_msg("Options -l and -u conflict\n");
     if(argc <= optind)
     {
         if(!OPT_Q)
             printf("No path given, searching current directory.\n");
-        srcdir = calloc(1, 2);
+        srcdir = calloc(1, 2); /* This allocation leaks.  It will only ever leak two bytes. */
         srcdir[0] = '.';
         srcdir[1] = '\0';
     }
@@ -184,7 +203,7 @@ int main(int argc, char * argv[])
     maxseg++; // segments are numbered from zero, so the max seg is actually one higher
     maxsnap--; // snapshots on the other hand, are numbered from one, we track only diffs, not inclusive
     if(!OPT_Q)
-        printf("Reading %d files for pid %d over %d snapshots on memory regions 0 through %d\n", files, pid, maxsnap+1, maxseg);
+        printf("Reading %d files for pid %d over %d snapshots on memory regions 0 through %d\n\n", files, pid, maxsnap+1, maxseg);
     err_chk(files == -1);
 
     /* Data array initialization */
@@ -221,7 +240,7 @@ int main(int argc, char * argv[])
             chk = fstat(fd, &statchk);
             err_chk(chk == -1);
             if(statchk.st_size == 0)
-                goto ijloopcleanup;
+                goto dataloadloopcleanup;
             
             /* Process file */
             data[seg][snap].size = statchk.st_size;
@@ -229,7 +248,7 @@ int main(int argc, char * argv[])
             err_chk(map == NULL);
             data[seg][snap].ones = popcounter(map, statchk.st_size);
 
-ijloopcleanup:
+dataloadloopcleanup:
             /* Cleanup */
             rindex(fpath, '/')[1] = '\0';
             if(map)
@@ -242,18 +261,72 @@ ijloopcleanup:
         }
     }
 
-    exit(EXIT_SUCCESS);
+    /* Output results */
+    if(!OPT_Q && OPT_L)
+        printf("Change regions above %d blocks only:\n", limit);
+    else if(!OPT_Q && !OPT_U)
+        printf("Changed regions only:\n");
+
+    snapcols = calloc(maxsnap, sizeof(int *));
+    printf("Region |    Total region changes    |");
+    for(int snap = 0; snap < maxsnap; ++snap)
+        snapcols[snap] = printf("   Changed snap%d to snap%d   |", snap + 1, snap + 2);
+    printf("\n");
+    for(int seg = 0; seg < maxseg; ++seg)
+    {
+        unsigned long long totalones = 0;
+        unsigned long long totalsize = 0;
+        int oc = 0; /* output character count */
+
+        for(int snap = 0; snap < maxsnap; ++snap)
+        {
+            totalsize += data[seg][snap].size;
+            totalones += data[seg][snap].ones;
+        }
+        if(!OPT_U && totalones == 0)
+            continue;
+        if(totalsize == 0)
+            continue;
+        if(OPT_L && (totalsize / maxsnap) < limit)
+            continue;
+
+        /* Segment result */
+        printf("%6d |", seg);
+        oc = printf(" %lld / %lld ", totalones, totalsize * 8);
+        snprintf(fname, NAMELEN, "%%%d.2f%% |", 28 - oc - 2); /* reuse fname as format string buffer */
+        printf(fname, (double) ((double) totalones * 100 / (double) (totalsize * 8)));
+        for(int snap = 0; snap < maxsnap; ++snap)
+        {
+            if(data[seg][snap].size == 0)
+            {
+                snprintf(fname, NAMELEN, "%%%ds |", snapcols[snap] - 2);
+                printf(fname, " ");
+                continue;
+            }
+            oc = printf(" %lld / %lld ", data[seg][snap].ones, data[seg][snap].size * 8);
+            snprintf(fname, NAMELEN, "%%%d.2f%% |", snapcols[snap] - oc - 3);
+            printf(fname, (double) ((double) data[seg][snap].ones * 100 / (double) (data[seg][snap].size * 8)));
+        }
+        printf("\n");
+    }
+
+    success = true;
+
+    (void)(blocksize); /* variable unused in this version */
 
 err:
     if(errno)
         perror("memxamine");
-    if(srcdir)
-        free(srcdir);
+    /* srcdir sometimes leaks two bytes */
     if(base)
         free(base);
     if(data)
         free(data);
-    exit(EXIT_FAILURE);
+    if(snapcols)
+        free(snapcols);
+    if(!success)
+        exit(EXIT_FAILURE);
+    exit(EXIT_SUCCESS);
 }
 
 /* Count ones */
