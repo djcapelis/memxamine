@@ -47,6 +47,7 @@ bool OPT_L = false;         /* -l specified */
 bool OPT_P = false;         /* -p specified */
 bool OPT_U = false;         /* -u specified */
 bool OPT_Q = false;         /* -q specified */
+bool OPT_T = false;         /* -t specified */
 int pid;                    /* pid of process differences to examine */
 int maxseg;                 /* maximum segment number */
 int maxsnap;                /* maximum snapshot number */
@@ -63,6 +64,7 @@ void print_usage()
     fprintf(stderr, "\t-l <limit> ignore segments with under <limit> blocks\n");
     fprintf(stderr, "\t-p <pid> Look for memdiff files from pid <pid>\n");
     fprintf(stderr, "\t-u list unchanged segments\n");
+    fprintf(stderr, "\t-t report totals for segments only.\n");
     fprintf(stderr, "\t-q quieter output: squelch unnecessary messages\n");
 }
 
@@ -90,7 +92,7 @@ int main(int argc, char * argv[])
     char * strerr = NULL;   /* Per getopt(3) */
     long arg;               /* Temporary argument storage */
     struct stat statchk;    /* For checking path validity */
-    while((opt = getopt(argc, argv, "+hb:k:l:p:uq")) != -1)
+    while((opt = getopt(argc, argv, "+hb:k:l:p:utq")) != -1)
     {
         switch(opt)
         {
@@ -141,6 +143,9 @@ int main(int argc, char * argv[])
                     err_msg("Unable to parse -l argument correctly, invalid number\n");
                 limit = arg;
                 optarg = NULL;
+                break;
+            case 't':
+                OPT_T = true;
                 break;
             /* Show unchanged segments */
             case 'u':
@@ -296,6 +301,8 @@ dataloadloopcleanup:
         oc = printf(" %lld / %lld ", totalones, totalsize * 8);
         snprintf(fname, NAMELEN, "%%%d.2f%% |", 28 - oc - 2); /* reuse fname as format string buffer */
         printf(fname, (double) ((double) totalones * 100 / (double) (totalsize * 8)));
+        if(OPT_T)
+            maxsnap = 0; /* If we're only reporting totals, the max snaps we report are 0 */
         for(int snap = 0; snap < maxsnap; ++snap)
         {
             if(data[seg][snap].size == 0)
