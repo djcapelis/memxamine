@@ -204,7 +204,7 @@ int main(int argc, char * argv[])
     maxseg++; // segments are numbered from zero, so the max seg is actually one higher
     maxsnap--; // snapshots on the other hand, are numbered from one, we track only diffs, not inclusive
     if(!OPT_Q)
-        printf("Reading %d files for pid %d over %d snapshots on memory regions 0 through %d\n\n", files, pid, maxsnap+1, maxseg);
+        printf("Reading %d files for pid %d over %d snapshots on memory segments 0 through %d\n\n", files, pid, maxsnap+1, maxseg);
     err_chk(files == -1);
 
     /* Data array initialization */
@@ -264,12 +264,12 @@ dataloadloopcleanup:
 
     /* Output results */
     if(!OPT_Q && OPT_L)
-        printf("Showing regions above %d blocks only:\n", limit);
+        printf("Showing segments above %d blocks only:\n", limit);
     else if(!OPT_Q && !OPT_U)
-        printf("Changed regions only:\n");
+        printf("Changed segments only:\n");
 
     snapcols = calloc(maxsnap, sizeof(int *));
-    printf("Region |    Total region changes    |");
+    printf("Region |    Total segment change    |");
     for(int snap = 0; snap < maxsnap; ++snap)
         snapcols[snap] = printf("   Changed snap%d to snap%d   |", snap + 1, snap + 2);
     printf("\n");
