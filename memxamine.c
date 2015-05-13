@@ -60,7 +60,7 @@ void print_usage()
     fprintf(stderr, "\t-h Print usage\n");
     /*fprintf(stderr, "\t-b <size> assume blocksize of <size> bytes\n");
     fprintf(stderr, "\t-k <size> assume blocksize of <size> kilobytes\n");*/
-    fprintf(stderr, "\t-l <limit> ignore segments with under <limit> blocks");
+    fprintf(stderr, "\t-l <limit> ignore segments with under <limit> blocks\n");
     fprintf(stderr, "\t-p <pid> Look for memdiff files from pid <pid>\n");
     fprintf(stderr, "\t-u list unchanged segments\n");
     fprintf(stderr, "\t-q quieter output: squelch unnecessary messages\n");
@@ -263,7 +263,7 @@ dataloadloopcleanup:
 
     /* Output results */
     if(!OPT_Q && OPT_L)
-        printf("Change regions above %d blocks only:\n", limit);
+        printf("Showing regions above %d blocks only:\n", limit);
     else if(!OPT_Q && !OPT_U)
         printf("Changed regions only:\n");
 

@@ -1,3 +1,41 @@
 Memxamine is a tool to analyze the memory difference files from memdiff (https://github.com/djcapelis/memdiff) and report very simple information and statistics on them.  As part of a larger workflow, memxamine is designed for simple triaging and determining which segments are worth a more detailed look.
 
-It may eventually also do other things, like providing rough memory write bandwidth estimates, since it's easy enough to display that data and why not?
+Memxamine in its own words:
+$ ./memxamine -h
+Usage: memxamine <options> -p <pid> [memdiffs path]
+    -h Print usage
+    -l <limit> ignore segments with under <limit> blocks
+    -p <pid> Look for memdiff files from pid <pid>
+    -u list unchanged segments
+    -q quieter output: squelch unnecessary messages
+
+The output looks like this:
+$ ./memxamine -p 473 -l 8 ../memsnap/
+Reading 99 files for pid 473 over 3 snapshots on memory regions 0 through 92
+
+Showing regions above 8 blocks only:
+Region |    Total region changes    |   Changed snap1 to snap2   |   Changed snap2 to snap3   |
+     1 | 1507 / 5472         27.54% | 4 / 8               50.00% | 1503 / 5464         27.51% |
+     2 | 45 / 184            24.46% | 4 / 8               50.00% | 41 / 176            23.30% |
+     3 | 213 / 224           95.09% | 4 / 8               50.00% | 209 / 216           96.76% |
+     4 | 1338 / 1352         98.96% | 1 / 8               12.50% | 1337 / 1344         99.48% |
+     5 | 5 / 2056             0.24% | 1 / 8               12.50% | 4 / 2048             0.20% |
+     6 | 2050 / 2088         98.18% | 3 / 40               7.50% | 2047 / 2048         99.95% |
+    12 | 319 / 320           99.69% |                            | 319 / 320           99.69% |
+    14 | 2048 / 2048        100.00% |                            | 2048 / 2048        100.00% |
+    15 | 5 / 2048             0.24% |                            | 5 / 2048             0.24% |
+    16 | 5 / 2048             0.24% |                            | 5 / 2048             0.24% |
+    19 | 681 / 768           88.67% |                            | 681 / 768           88.67% |
+    20 | 2046 / 2048         99.90% |                            | 2046 / 2048         99.90% |
+    24 | 11967 / 11968       99.99% |                            | 11967 / 11968       99.99% |
+    25 | 262144 / 262144    100.00% |                            | 262144 / 262144    100.00% |
+    27 | 4 / 2048             0.20% |                            | 4 / 2048             0.20% |
+    28 | 2023 / 2048         98.78% |                            | 2023 / 2048         98.78% |
+    29 | 2 / 2048             0.10% |                            | 2 / 2048             0.10% |
+    30 | 3 / 2048             0.15% |                            | 3 / 2048             0.15% |
+    31 | 4 / 2048             0.20% |                            | 4 / 2048             0.20% |
+    32 | 1 / 1040             0.10% |                            | 1 / 1040             0.10% |
+    33 | 261 / 2304          11.33% |                            | 261 / 2304          11.33% |
+    34 | 1009 / 2048         49.27% |                            | 1009 / 2048         49.27% |
+    45 | 2048 / 2048        100.00% |                            | 2048 / 2048        100.00% |
+    57 | 2042 / 2048         99.71% |                            | 2042 / 2048         99.71% |
