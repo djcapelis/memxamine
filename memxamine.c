@@ -211,6 +211,11 @@ int main(int argc, char * argv[])
     if(!OPT_Q)
         printf("Reading %d files for pid %d over %d snapshots on memory segments 0 through %d\n\n", files, pid, maxsnap+1, maxseg);
     err_chk(files == -1);
+    if(files == 0)
+    {
+        fprintf(stderr, "No memdiff files found for pid %d in path \"%s\"\n", pid, srcdir);
+        exit(EXIT_FAILURE);
+    }
 
     /* Data array initialization */
     base = calloc(maxseg * maxsnap, sizeof(struct segdata));
