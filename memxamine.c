@@ -131,6 +131,7 @@ int main(int argc, char * argv[])
                 blocksize = arg * 1024;
                 optarg = NULL;
                 break;
+            /* Limit segments reported */
             case 'l':
                 if(OPT_L)
                     err_msg("Duplicate -l arguments\n");
