@@ -64,7 +64,7 @@ void print_usage()
     fprintf(stderr, "\t-l <limit> ignore segments with under <limit> blocks\n");
     fprintf(stderr, "\t-p <pid> Look for memdiff files from pid <pid>\n");
     fprintf(stderr, "\t-u list unchanged segments\n");
-    fprintf(stderr, "\t-t report totals for segments only.\n");
+    fprintf(stderr, "\t-t report totals for segments only\n");
     fprintf(stderr, "\t-q quieter output: squelch unnecessary messages\n");
 }
 
