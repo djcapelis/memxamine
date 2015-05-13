@@ -280,8 +280,9 @@ dataloadloopcleanup:
 
     snapcols = calloc(maxsnap, sizeof(int *));
     printf("Region |    Total segment change    |");
-    for(int snap = 0; snap < maxsnap; ++snap)
-        snapcols[snap] = printf("   Changed snap%d to snap%d   |", snap + 1, snap + 2);
+    if(!OPT_T)
+        for(int snap = 0; snap < maxsnap; ++snap)
+            snapcols[snap] = printf("   Changed snap%d to snap%d   |", snap + 1, snap + 2);
     printf("\n");
     for(int seg = 0; seg < maxseg; ++seg)
     {
@@ -306,19 +307,20 @@ dataloadloopcleanup:
         oc = printf(" %lld / %lld ", totalones, totalsize * 8);
         snprintf(fname, NAMELEN, "%%%d.2f%% |", 28 - oc - 2); /* reuse fname as format string buffer */
         printf(fname, (double) ((double) totalones * 100 / (double) (totalsize * 8)));
-        if(OPT_T)
-            maxsnap = 0; /* If we're only reporting totals, the max snaps we report are 0 */
-        for(int snap = 0; snap < maxsnap; ++snap)
+        if(!OPT_T)
         {
-            if(data[seg][snap].size == 0)
+            for(int snap = 0; snap < maxsnap; ++snap)
             {
-                snprintf(fname, NAMELEN, "%%%ds |", snapcols[snap] - 2);
-                printf(fname, " ");
-                continue;
+                if(data[seg][snap].size == 0)
+                {
+                    snprintf(fname, NAMELEN, "%%%ds |", snapcols[snap] - 2);
+                    printf(fname, " ");
+                    continue;
+                }
+                oc = printf(" %lld / %lld ", data[seg][snap].ones, data[seg][snap].size * 8);
+                snprintf(fname, NAMELEN, "%%%d.2f%% |", snapcols[snap] - oc - 3);
+                printf(fname, (double) ((double) data[seg][snap].ones * 100 / (double) (data[seg][snap].size * 8)));
             }
-            oc = printf(" %lld / %lld ", data[seg][snap].ones, data[seg][snap].size * 8);
-            snprintf(fname, NAMELEN, "%%%d.2f%% |", snapcols[snap] - oc - 3);
-            printf(fname, (double) ((double) data[seg][snap].ones * 100 / (double) (data[seg][snap].size * 8)));
         }
         printf("\n");
     }
