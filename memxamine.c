@@ -16,11 +16,14 @@
 #include<strings.h>
 #include<dirent.h>
 #include<sys/stat.h>
+#include<fcntl.h>
+#include<sys/mman.h>
 
 /* Function prototypes */
 void print_usage();
 void err_msg(char * msg);
 void err_exit();
+unsigned long long popcounter(unsigned char * start, unsigned long long len);
 int filter(const struct dirent * f);
 int cmp(const struct dirent ** p0, const struct dirent ** p1);
 
@@ -30,15 +33,23 @@ int cmp(const struct dirent ** p0, const struct dirent ** p1);
 /* Macros */
 #define err_chk(cond) do { if(cond) { goto err; }} while(0)
 
+/* Structures */
+struct segdata
+{
+    unsigned long long size;
+    unsigned long long ones;
+};
+
 /* Globals */
-bool OPT_B = false;     /* -b specified */
-bool OPT_K = false;     /* -k specified */
-bool OPT_P = false;     /* -p specified */
-bool OPT_U = false;     /* -u specified */
-bool OPT_Q = false;     /* -q specified */
-int pid;                /* pid of process differences to examine */
-int maxseg;             /* maximum segment number */
-int maxsnap;            /* maximum snapshot number */
+bool OPT_B = false;         /* -b specified */
+bool OPT_K = false;         /* -k specified */
+bool OPT_P = false;         /* -p specified */
+bool OPT_U = false;         /* -u specified */
+bool OPT_Q = false;         /* -q specified */
+int pid;                    /* pid of process differences to examine */
+int maxseg;                 /* maximum segment number */
+int maxsnap;                /* maximum snapshot number */
+struct segdata ** data;     /* data array */
 
 /* Print tin label */
 void print_usage()
@@ -55,9 +66,17 @@ void print_usage()
 int main(int argc, char * argv[])
 {
     /* Variables! */
-    int blocksize;          /* assume a blocksize of this size */
-    int chk;                /* return value check */
-    char * srcdir;          /* where the memdiffs are */
+    int blocksize;                  /* assume a blocksize of this size */
+    int chk;                        /* return value check */
+    char * srcdir;                  /* where the memdiffs are */
+    char * fpath;                   /* file paths */
+    int i;                          /* counting variable */
+    struct segdata * base = NULL;   /* underlying memory for the data array */
+    char fname[NAMELEN];            /* file name string */
+
+    /* Initialization */
+    data = NULL;
+    fpath = NULL;
 
     /* Argument parsing */
     char opt;               /* Char for getopt() */
@@ -153,14 +172,75 @@ int main(int argc, char * argv[])
             err_exit();
         }
     }
+    fpath = calloc(strlen(srcdir) + NAMELEN, sizeof(char));
+    err_chk(fpath == NULL);
 
+    /* File picking */
     struct dirent ** flist;
     int files;
     files = scandir(srcdir, &flist, &filter, &cmp);
-    for(int i = 0; i < files;i++)
-        printf("%s\n", flist[i]->d_name);
-    printf("maxseg: %d, maxsnap %d, total files %d\n", maxseg, maxsnap, files);
+/*    for(int i = 0; i < files;i++)
+        printf("%s\n", flist[i]->d_name);*/
+    maxseg++; // segments are numbered from zero, so the max seg is actually one higher
+    maxsnap--; // snapshots on the other hand, are numbered from one, we track only diffs, not inclusive
+    if(!OPT_Q)
+        printf("Reading %d files for pid %d over %d snapshots on memory regions 0 through %d\n", files, pid, maxsnap+1, maxseg);
     err_chk(files == -1);
+
+    /* Data array initialization */
+    base = calloc(maxseg * maxsnap, sizeof(struct segdata));
+    err_chk(base == NULL);
+    data = calloc(maxseg, sizeof(struct segdata *));
+    err_chk(data == NULL);
+    for(i = 0; i < maxseg; ++i)
+        data[i] = base + (i * maxsnap);
+
+    /* Determine segment changes */
+    int curfile = 0;
+    strcpy(fpath, srcdir);
+    if(fpath[strlen(fpath)-1] != '/')
+        strcat(fpath, "/");
+    for(int seg = 0; seg < maxseg; ++seg)
+    {
+        for(int snap = 0; snap < maxsnap; ++snap)
+        {
+            int fd = 0;
+            unsigned char * map = NULL;
+
+            /* Check for file */
+            snprintf(fname, NAMELEN, "%s%d%s%d%s%d%s%d%s", "pid", pid, "_snap", snap + 1, "_snap", snap + 2 , "_seg", seg, ".memdiff");
+            if(strcmp(fname, flist[curfile]->d_name) != 0)
+                continue;
+            
+            /* Format name */
+            strcat(fpath, flist[curfile]->d_name);
+
+            /* Open file */
+            fd = open(fpath, 0);
+            err_chk(fd == -1);
+            chk = fstat(fd, &statchk);
+            err_chk(chk == -1);
+            if(statchk.st_size == 0)
+                goto ijloopcleanup;
+            
+            /* Process file */
+            data[seg][snap].size = statchk.st_size;
+            map = mmap(NULL, statchk.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+            err_chk(map == NULL);
+            data[seg][snap].ones = popcounter(map, statchk.st_size);
+
+ijloopcleanup:
+            /* Cleanup */
+            rindex(fpath, '/')[1] = '\0';
+            if(map)
+                chk = munmap(map, statchk.st_size);
+            err_chk(chk == -1);
+            if(fd)
+                chk = close(fd);
+            err_chk(chk == -1);
+            curfile++;
+        }
+    }
 
     exit(EXIT_SUCCESS);
 
@@ -169,7 +249,26 @@ err:
         perror("memxamine");
     if(srcdir)
         free(srcdir);
+    if(base)
+        free(base);
+    if(data)
+        free(data);
     exit(EXIT_FAILURE);
+}
+
+/* Count ones */
+unsigned long long popcounter(unsigned char * start, unsigned long long len)
+{
+    unsigned char * cur;
+    unsigned long long ones = 0;
+
+    /* XXX This could be a lot faster if you throw 8 bytes into the intrinsic instead of 1... */
+    for(cur = start; cur < (start + len); ++cur)
+    {
+        ones += __builtin_popcount(*cur);
+    }
+
+    return ones;
 }
 
 /* Filter function for scandir() */
